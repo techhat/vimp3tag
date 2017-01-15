@@ -1,0 +1,82 @@
+#!/usr/bin/python2
+
+import os
+import os.path
+import sys
+import glob
+import hashlib
+import tempfile
+from types import NoneType
+from subprocess import call
+import eyed3
+
+FILES = []
+for ARG in sys.argv[2:]:
+    if os.path.isdir(ARG):
+        ARG = '{0}/*'.format(ARG)
+    for FILE in glob.glob(ARG):
+        FILES.append(FILE)
+
+if sys.argv[1] == 'show':
+    for FILE in FILES:
+        MP3 = eyed3.load(FILE)
+        print(
+            '{0} - {1} ({2})'.format(
+                MP3.tag.artist,
+                MP3.tag.title,
+                FILE,
+            )
+        )
+elif sys.argv[1] == 'edit':
+    FILEDATA = tempfile.mkstemp()
+    OUTFILE = open(FILEDATA[1], 'w')
+
+    for FILE in sorted(FILES):
+        MP3 = eyed3.load(FILE)
+        MP3DATA = '|'.join([
+            MP3.tag.artist,
+            MP3.tag.title,
+            FILE,
+        ])
+        if isinstance(MP3.tag.track_num[1], NoneType):
+            TRACK_NUM = str(MP3.tag.track_num[0])
+        else:
+            TRACK_NUM = '{0}/{1}'.format(
+                MP3.tag.track_num[0],
+                MP3.tag.track_num[1],
+            )
+        MP3DATA = '{0}|{1}\n'.format(TRACK_NUM, MP3DATA)
+        OUTFILE.write(MP3DATA)
+
+    OUTFILE.close()
+    with open(FILEDATA[1], 'r') as ORIGFILE:
+        ORIGLINES = ORIGFILE.read().splitlines()
+
+    EDITOR = os.environ.get('EDITOR','vim')
+    call([EDITOR, FILEDATA[1]])
+
+    COUNT = 0
+    CHANGED = False
+    INFILE = open(FILEDATA[1], 'r')
+    for LINE in INFILE.read().splitlines():
+        if LINE != ORIGLINES[COUNT]:
+            CHANGED = True
+            COMPS = LINE.split('|')
+            FILE = COMPS.pop(-1)
+            TRACK_NUM = COMPS[0]
+            ARTIST = COMPS[1]
+            TITLE = COMPS[2]
+            if '/' in TRACK_NUM:
+                TRACK_NUM = tuple(TRACK_NUM.split('/'))
+            else:
+                TRACK_NUM = int(TRACK_NUM)
+            MP3 = eyed3.load(FILE)
+            MP3.tag.track_num = TRACK_NUM
+            MP3.tag.artist = unicode(ARTIST)
+            MP3.tag.title = unicode(TITLE)
+            MP3.tag.save()
+        COUNT = COUNT + 1
+
+    os.remove(FILEDATA[1])
+    if not CHANGED:
+        print('No items changed, no files modified')
